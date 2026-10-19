@@ -1,0 +1,5 @@
+<Solution>
+  <Project Path="../Register.IntegrationTests/Register.IntegrationTests.csproj" />
+  <Project Path="../Register.UnitTests/Register.UnitTests.csproj" />
+  <Project Path="Register.csproj" />
+</Solution>

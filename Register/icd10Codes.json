@@ -1,0 +1,27 @@
+[
+    {
+        "system": "http://hl7.org/fhir/sid/icd-10",
+        "code": "A00",
+        "display": "Cholera"
+    },
+    {
+        "system": "http://hl7.org/fhir/sid/icd-10",
+        "code": "A00.1",
+        "display": "Typhoid and paratyphoid fevers"
+    },
+    {
+        "system": "http://hl7.org/fhir/sid/icd-10",
+        "code": "A02.0",
+        "display": "Salmonella enteritis"
+    },
+    {
+        "system": "http://hl7.org/fhir/sid/icd-10",
+        "code": "A03",
+        "display": "Shigellosis"
+    },
+    {
+        "system": "http://hl7.org/fhir/sid/icd-10",
+        "code": "A04",
+        "display": "Other bacterial intestinal infections"
+    }
+]
