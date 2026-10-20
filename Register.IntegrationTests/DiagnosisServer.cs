@@ -1,3 +1,5 @@
+using System.Net;
+using System.Net.Sockets;
 using Microsoft.AspNetCore.Builder;
 using Microsoft.AspNetCore.Hosting;
 using Microsoft.Extensions.DependencyInjection;
@@ -36,10 +38,14 @@ public static class DiagnosisServer
         {
             EnvironmentName = "Testing"
         });
-        builder.WebHost.UseUrls("http://127.0.0.1:0");
+        var address = $"http://127.0.0.1:{GetFreeTcpPort()}";
+        builder.WebHost.UseUrls(address);
         builder.Logging.SetMinimumLevel(LogLevel.Warning);
 
-        builder.Services.ConfigurationServices();
+        // The service under test calls its own /externalRequest endpoint over HTTP.
+        builder.Configuration["ExternalRegistry:BaseUrl"] = address;
+
+        builder.Services.ConfigurationServices(builder.Configuration);
 
         // Replace real persistence with deterministic in-memory fake.
         var toRemove = builder.Services
@@ -58,8 +64,16 @@ public static class DiagnosisServer
         app.MapApplication();
         await app.StartAsync();
 
-        var address = app.Urls.First();
         var client = new HttpClient { BaseAddress = new Uri(address) };
         return (app, client);
+    }
+
+    private static int GetFreeTcpPort()
+    {
+        var listener = new TcpListener(IPAddress.Loopback, 0);
+        listener.Start();
+        var port = ((IPEndPoint)listener.LocalEndpoint).Port;
+        listener.Stop();
+        return port;
     }
 }

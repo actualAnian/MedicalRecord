@@ -4,27 +4,25 @@ namespace Register.API
 {
     public class DiagnosisMutation
     {
-        public RegisterDiagnosisPayload RegisterDiagnosis(
+        public async Task<RegisterDiagnosisPayload> RegisterDiagnosis(
             RegisterDiagnosisRequest input,
             [Service] IDiagnosisService service)
         {
-            var result = service.Register(input);
+            var result = await service.Register(input);
             if (result.IsFailure) return RegisterDiagnosisPayload.Invalid(result.Errors);
-            else return RegisterDiagnosisPayload.Created(result.Value!);
+            else return RegisterDiagnosisPayload.Created();
         }
     }
 
     public record RegisterDiagnosisPayload(
         bool Success,
-        Diagnosis? Diagnosis,
         IReadOnlyList<Error>? Errors)
         {
-            public static RegisterDiagnosisPayload Created(
-                Diagnosis diagnosis)
-                => new(true, diagnosis, default);
+            public static RegisterDiagnosisPayload Created()
+                => new(true, default);
 
             public static RegisterDiagnosisPayload Invalid(
                 IReadOnlyList<Error> error)
-                => new(false, null, error);
+                => new(false, error);
         }
 }

@@ -1,5 +1,6 @@
 ﻿using Register.Builders;
 using Register.DTO;
+using Register.ExternalAPI;
 using System;
 using System.Collections.Generic;
 using System.Text;
@@ -8,7 +9,7 @@ namespace Register
 {
     public interface IDiagnosisService
     {
-        Result<Diagnosis> Register(RegisterDiagnosisRequest request);
+        Task<Result<Diagnosis>> Register(RegisterDiagnosisRequest request, CancellationToken cancellationToken = default);
     }
     public record RegisterDiagnosisRequest(
         string SourceSystem,
@@ -28,12 +29,16 @@ namespace Register
     public class DiagnosisService : IDiagnosisService
     {
         private readonly IDiagnosisRepository _repository;
-        public DiagnosisService(IDiagnosisRepository repository)
+        private readonly IExternalRegistryClient _externalRegistry;
+        public DiagnosisService(IDiagnosisRepository repository, IExternalRegistryClient externalRegistry)
         {
             _repository = repository;
+            _externalRegistry = externalRegistry;
         }
 
-        public Result<Diagnosis> Register(RegisterDiagnosisRequest request)
+        public async Task<Result<Diagnosis>> Register(
+            RegisterDiagnosisRequest request,
+            CancellationToken cancellationToken = default)
         {
             var errors = new List<Error>();
 
@@ -68,8 +73,9 @@ namespace Register
             );
             _repository.Add(diagnosis);
 
-            Func<Diagnosis> call = async () => await ClientCertificateOption.
-            Retry.Execute<Diagnosis>(var response = await client.PostAsJsonAsync("/diagnoses", request);)
+            var external = await _externalRegistry.RegisterAsync(diagnosis, cancellationToken);
+            if (external.IsFailure) return Result<Diagnosis>.Fail(external.Errors);
+
             return Result<Diagnosis>.Success(diagnosis);
         }
     }

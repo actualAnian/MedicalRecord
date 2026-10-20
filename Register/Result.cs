@@ -28,6 +28,7 @@ namespace Register
     {
         public sealed record NotFound(string EntityName, Guid Id) : Error("NotFound", $"{EntityName} with ID {Id} was not found.");
         public sealed record Validation(string Message) : Error("ValidationError", Message);
+        public sealed record External(string Message) : Error("ExternalRegistryError", Message);
     }
 
 }
