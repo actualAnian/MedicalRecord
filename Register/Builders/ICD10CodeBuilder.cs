@@ -1,4 +1,5 @@
 ﻿using Register.DTO;
+using Register.Repositories;
 namespace Register.Builders
 {
     class ICD10CodeBuilder

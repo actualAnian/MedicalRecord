@@ -1,3 +1,4 @@
+using Register.Services;
 using System.Net.Http.Json;
 using System.Text.Json;
 
@@ -11,7 +12,6 @@ public class GraphQlDiagnosisTests
           registerDiagnosis(input: $input) {
             success
             errors { code message }
-            diagnosis { sourceSystem sourceRecordId }
           }
         }
         """;

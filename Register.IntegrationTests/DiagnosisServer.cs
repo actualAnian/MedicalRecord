@@ -4,6 +4,9 @@ using Microsoft.AspNetCore.Builder;
 using Microsoft.AspNetCore.Hosting;
 using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.Logging;
+using Register.DTO;
+using Register.Repositories;
+using Register.Services;
 
 namespace Register.IntegrationTests;
 
@@ -11,6 +14,10 @@ public static class DiagnosisServer
 {
     public const string ValidCodingSystem = "http://hl7.org/fhir/sid/icd-10";
     public const string ValidIcdCode = "A00";
+    public const string ValidPesel = "44051401359";
+    public const string ValidSourceSystem = "HIS";
+    public const string ValidPatientSourceRecordId = "PATIENT-1";
+    public static readonly Guid ValidPatientId = Guid.Parse("11111111-1111-1111-1111-111111111111");
 
     public static RegisterDiagnosisRequest ValidRequest(
         string? sourceSystem = null,
@@ -32,6 +39,21 @@ public static class DiagnosisServer
             SymptomStartAge: symptomStartAge,
             VisitId: "VISIT-1");
 
+    public static Diagnosis DiagnosisFor(
+        Guid patientId,
+        ClinicalStatus status,
+        string? sourceRecordId = null,
+        string sourceSystem = "HIS")
+        => new(
+            sourceSystem,
+            sourceRecordId ?? Guid.NewGuid().ToString("N"),
+            new Patient(patientId),
+            new ICD10(ValidCodingSystem, ValidIcdCode, "Cholera"),
+            DateOnly.FromDateTime(DateTime.UtcNow.AddDays(-1)),
+            status,
+            ConfirmationStatus.Confirmed,
+            new SymptomStart.FromDate(DateOnly.FromDateTime(DateTime.UtcNow.AddDays(-5))));
+
     public static async Task<(WebApplication App, HttpClient Client)> CreateAsync()
     {
         var builder = WebApplication.CreateBuilder(new WebApplicationOptions
@@ -51,6 +73,7 @@ public static class DiagnosisServer
         var toRemove = builder.Services
             .Where(d => d.ServiceType == typeof(IDiagnosisRepository)
                      || d.ServiceType == typeof(DiagnosisRepository)
+                     || d.ServiceType == typeof(IPatientRepository)
                      || d.ServiceType == typeof(RegisterDBDapper))
             .ToList();
         foreach (var d in toRemove) builder.Services.Remove(d);
@@ -58,6 +81,16 @@ public static class DiagnosisServer
         builder.Services.AddSingleton<InMemoryDiagnosisRepository>();
         builder.Services.AddScoped<IDiagnosisRepository>(sp =>
             sp.GetRequiredService<InMemoryDiagnosisRepository>());
+
+        var patientRepository = new InMemoryPatientRepository();
+        patientRepository.Seed(
+            new Patient(ValidPatientId),
+            ValidPesel,
+            ValidSourceSystem,
+            ValidPatientSourceRecordId);
+        builder.Services.AddSingleton(patientRepository);
+        builder.Services.AddScoped<IPatientRepository>(sp =>
+            sp.GetRequiredService<InMemoryPatientRepository>());
 
         var app = builder.Build();
         app.UseDeveloperExceptionPage();

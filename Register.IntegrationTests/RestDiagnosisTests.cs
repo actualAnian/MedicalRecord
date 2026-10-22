@@ -1,5 +1,8 @@
 using System.Net;
 using System.Net.Http.Json;
+using System.Text.Json;
+using Microsoft.Extensions.DependencyInjection;
+using Register.DTO;
 
 namespace Register.IntegrationTests;
 
@@ -66,6 +69,56 @@ public class RestDiagnosisTests
         };
 
         var response = await client.PostAsJsonAsync("/diagnoses", request);
+
+        Assert.Equal(HttpStatusCode.BadRequest, response.StatusCode);
+    }
+
+    [Fact]
+    public async Task GetPatientDiagnoses_ValidStatus_ReturnsOnlyMatchingDiagnoses()
+    {
+        var (app, client) = await DiagnosisServer.CreateAsync();
+        await using var _ = app;
+        using var __ = client;
+
+        var repository = app.Services.GetRequiredService<InMemoryDiagnosisRepository>();
+        repository.Seed(
+            DiagnosisServer.DiagnosisFor(
+                DiagnosisServer.ValidPatientId, ClinicalStatus.Active, "D-ACTIVE"),
+            DiagnosisServer.DiagnosisFor(
+                DiagnosisServer.ValidPatientId, ClinicalStatus.Healed, "D-HEALED"));
+
+        var response = await client.GetAsync(
+            $"/patients/{DiagnosisServer.ValidPatientId}/diagnoses?clinicalStatuses=Active");
+
+        Assert.Equal(HttpStatusCode.OK, response.StatusCode);
+        using var body = JsonDocument.Parse(await response.Content.ReadAsStringAsync());
+        var diagnosis = Assert.Single(body.RootElement.EnumerateArray().ToList());
+        Assert.Equal("D-ACTIVE", diagnosis.GetProperty("sourceRecordId").GetString());
+    }
+
+    [Fact]
+    public async Task GetPatientDiagnoses_UnknownStatus_ReturnsBadRequest()
+    {
+        var (app, client) = await DiagnosisServer.CreateAsync();
+        await using var _ = app;
+        using var __ = client;
+
+        var response = await client.GetAsync(
+            $"/patients/{DiagnosisServer.ValidPatientId}/diagnoses?clinicalStatuses=Unknown");
+
+        Assert.Equal(HttpStatusCode.BadRequest, response.StatusCode);
+        Assert.Contains("ValidationError", await response.Content.ReadAsStringAsync());
+    }
+
+    [Fact]
+    public async Task GetPatientDiagnoses_MissingStatus_ReturnsBadRequest()
+    {
+        var (app, client) = await DiagnosisServer.CreateAsync();
+        await using var _ = app;
+        using var __ = client;
+
+        var response = await client.GetAsync(
+            $"/patients/{DiagnosisServer.ValidPatientId}/diagnoses");
 
         Assert.Equal(HttpStatusCode.BadRequest, response.StatusCode);
     }

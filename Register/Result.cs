@@ -27,6 +27,7 @@ namespace Register
     public abstract record Error(string Code, string Message)
     {
         public sealed record NotFound(string EntityName, Guid Id) : Error("NotFound", $"{EntityName} with ID {Id} was not found.");
+        public sealed record NotFoundOnLookup(string EntityName, string Message) : Error("NotFoundOnLookup", $"{EntityName} not found. Message: {Message}");
         public sealed record Validation(string Message) : Error("ValidationError", Message);
         public sealed record External(string Message) : Error("ExternalRegistryError", Message);
     }

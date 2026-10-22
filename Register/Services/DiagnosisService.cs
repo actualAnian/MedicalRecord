@@ -1,14 +1,13 @@
 ﻿using Register.Builders;
 using Register.DTO;
 using Register.ExternalAPI;
-using System;
-using System.Collections.Generic;
-using System.Text;
+using Register.Repositories;
 
-namespace Register
+namespace Register.Services
 {
     public interface IDiagnosisService
     {
+        Result<IEnumerable<Diagnosis>> FindDiagnosesByStatus(Guid patientId, string clinicalStatuses);
         Task<Result<Diagnosis>> Register(RegisterDiagnosisRequest request, CancellationToken cancellationToken = default);
     }
     public record RegisterDiagnosisRequest(
@@ -26,14 +25,20 @@ namespace Register
         string? VisitId
     );
 
-    public class DiagnosisService : IDiagnosisService
+    public class DiagnosisService(IDiagnosisRepository repository, IExternalRegistryClient externalRegistry) : IDiagnosisService
     {
-        private readonly IDiagnosisRepository _repository;
-        private readonly IExternalRegistryClient _externalRegistry;
-        public DiagnosisService(IDiagnosisRepository repository, IExternalRegistryClient externalRegistry)
+        private readonly IDiagnosisRepository _repository = repository;
+        private readonly IExternalRegistryClient _externalRegistry = externalRegistry;
+
+        public Result<IEnumerable<Diagnosis>> FindDiagnosesByStatus(Guid patientId, string clinicalStatus)
         {
-            _repository = repository;
-            _externalRegistry = externalRegistry;
+            if (!Enum.TryParse<ClinicalStatus>(clinicalStatus, ignoreCase: true, out var result))
+            {
+                var enumValue = string.Join(", ", Enum.GetNames(typeof(ClinicalStatus)));
+                return Result<IEnumerable<Diagnosis>>.Fail([new Error.Validation($"status not found, all statuses: {enumValue}")]);
+            }
+            var diagnoses = _repository.FindByStatus(patientId, result);
+            return Result<IEnumerable<Diagnosis>>.Success(diagnoses);
         }
 
         public async Task<Result<Diagnosis>> Register(
@@ -45,7 +50,7 @@ namespace Register
             var existing = _repository.FindBySourceIdentity(
                 request.SourceSystem,
                 request.SourceRecordId);
-            if (existing.IsSuccess) return Result<Diagnosis>.Success(existing.GetValueOrThrow());
+            if (existing != null) return Result<Diagnosis>.Success(existing);
 
             var symptomStart = SymptomStartBuilder.BuildSymptomStart(request.SymptomStartDate, request.SymptomStartAge);
             var icd10 = ICD10CodeBuilder.Build(_repository, request.CodingSystem, request.IcdCode);

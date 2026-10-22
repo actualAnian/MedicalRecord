@@ -3,6 +3,8 @@ using Microsoft.Extensions.Configuration;
 using Microsoft.Extensions.DependencyInjection;
 using Register.API;
 using Register.ExternalAPI;
+using Register.Repositories;
+using Register.Services;
 
 namespace Register;
 
@@ -14,6 +16,10 @@ public static class ProgramExtensions
         services.AddScoped<IDiagnosisRepository, DiagnosisRepository>();
         services.AddScoped<DiagnosisRepository>();
         services.AddScoped<IDiagnosisService, DiagnosisService>();
+        services.AddScoped<IPatientRepository, PatientRepository>();
+        services.AddScoped<IPatientService, PatientService>();
+        services.AddScoped<IPatientRepository, PatientRepository>();
+        services.AddScoped<IPatientService, PatientService>();
 
         var externalRegistryUrl = configuration["ExternalRegistry:BaseUrl"] ?? "http://localhost:5000";
         services.AddHttpClient<IExternalRegistryClient, ExternalRegistryClient>(

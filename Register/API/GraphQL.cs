@@ -1,4 +1,5 @@
 ﻿using Register.DTO;
+using Register.Services;
 
 namespace Register.API
 {

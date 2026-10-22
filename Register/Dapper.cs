@@ -28,5 +28,20 @@ namespace Register
             var diagnosis = connection.Query<Diagnosis>(sql).ToList();
             return diagnosis;
         }
+
+        internal Diagnosis? GetDiagnosisWithStatus(Guid patientId, ClinicalStatus status)
+        {
+            return null;
+        }
+
+        internal Patient? GetPatientByPesel(string pesel)
+        {
+            return new(new());
+        }
+
+        internal Patient? GetPatientBySourceIdentity(string sourceSystem, string sourceRecordId)
+        {
+            return new(new());
+        }
     }
 }
