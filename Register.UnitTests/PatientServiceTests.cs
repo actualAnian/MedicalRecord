@@ -1,19 +1,20 @@
-using Register.DTO;
-using Register.Repositories;
-using Register.Services;
+using Register.App;
+using Register.App.DTO;
+using Register.App.Services;
+using Register.DataBase.Repositories;
 
 namespace Register.UnitTests;
 
 public class PatientServiceTests
 {
     [Fact]
-    public void FindPatientByPesel_ExistingPatient_ReturnsSuccess()
+    public async Task FindPatientByPeselAsync_ExistingPatient_ReturnsSuccess()
     {
-        var patient = new Patient(Guid.NewGuid());
+        var patient = new Patient(Guid.NewGuid(), "44051401359");
         var repository = new FakePatientRepository { PatientByPesel = patient };
         var service = new PatientService(repository);
 
-        var result = service.FindPatientByPesel("44051401359");
+        var result = await service.FindPatientByPeselAsync("44051401359");
 
         Assert.True(result.IsSuccess);
         Assert.Same(patient, result.Value);
@@ -21,11 +22,11 @@ public class PatientServiceTests
     }
 
     [Fact]
-    public void FindPatientByPesel_MissingPatient_ReturnsNotFoundOnLookup()
+    public async Task FindPatientByPeselAsync_MissingPatient_ReturnsNotFoundOnLookup()
     {
         var service = new PatientService(new FakePatientRepository());
 
-        var result = service.FindPatientByPesel("44051401359");
+        var result = await service.FindPatientByPeselAsync("44051401359");
 
         Assert.True(result.IsFailure);
         var error = Assert.IsType<Error.NotFoundOnLookup>(Assert.Single(result.Errors));
@@ -34,13 +35,13 @@ public class PatientServiceTests
     }
 
     [Fact]
-    public void FindPatientBySourceIdentity_ExistingPatient_ReturnsSuccess()
+    public async Task FindPatientBySourceIdentityAsync_ExistingPatient_ReturnsSuccess()
     {
-        var patient = new Patient(Guid.NewGuid());
+        var patient = new Patient(Guid.NewGuid(), "44051401359");
         var repository = new FakePatientRepository { PatientBySourceIdentity = patient };
         var service = new PatientService(repository);
 
-        var result = service.FindPatientBySourceIdentity("HIS", "REC-1");
+        var result = await service.FindPatientBySourceIdentityAsync("HIS", "REC-1");
 
         Assert.True(result.IsSuccess);
         Assert.Same(patient, result.Value);
@@ -49,11 +50,11 @@ public class PatientServiceTests
     }
 
     [Fact]
-    public void FindPatientBySourceIdentity_MissingPatient_ReturnsNotFoundOnLookup()
+    public async Task FindPatientBySourceIdentityAsync_MissingPatient_ReturnsNotFoundOnLookup()
     {
         var service = new PatientService(new FakePatientRepository());
 
-        var result = service.FindPatientBySourceIdentity("HIS", "REC-1");
+        var result = await service.FindPatientBySourceIdentityAsync("HIS", "REC-1");
 
         Assert.True(result.IsFailure);
         var error = Assert.IsType<Error.NotFoundOnLookup>(Assert.Single(result.Errors));
@@ -70,17 +71,17 @@ public class PatientServiceTests
         public string? LastSourceSystem { get; private set; }
         public string? LastSourceRecordId { get; private set; }
 
-        public Patient? FindPatientByPesel(string pesel)
+        public Task<Patient?> FindPatientByPeselAsync(string pesel)
         {
             LastPesel = pesel;
-            return PatientByPesel;
+            return Task.FromResult(PatientByPesel);
         }
 
-        public Patient? FindPatientBySourceIdentity(string sourceSystem, string sourceRecordId)
+        public Task<Patient?> FindPatientBySourceIdentityAsync(string sourceSystem, string sourceRecordId)
         {
             LastSourceSystem = sourceSystem;
             LastSourceRecordId = sourceRecordId;
-            return PatientBySourceIdentity;
+            return Task.FromResult(PatientBySourceIdentity);
         }
     }
 }

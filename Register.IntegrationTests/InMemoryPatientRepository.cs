@@ -1,5 +1,5 @@
-using Register.DTO;
-using Register.Repositories;
+using Register.App.DTO;
+using Register.DataBase.Repositories;
 
 namespace Register.IntegrationTests;
 
@@ -14,9 +14,9 @@ public sealed class InMemoryPatientRepository : IPatientRepository
         _bySourceIdentity[(sourceSystem, sourceRecordId)] = patient;
     }
 
-    public Patient? FindPatientByPesel(string pesel)
-        => _byPesel.TryGetValue(pesel, out var patient) ? patient : null;
+    public Task<Patient?> FindPatientByPeselAsync(string pesel)
+        => Task.FromResult(_byPesel.TryGetValue(pesel, out var patient) ? patient : null);
 
-    public Patient? FindPatientBySourceIdentity(string sourceSystem, string sourceRecordId)
-        => _bySourceIdentity.TryGetValue((sourceSystem, sourceRecordId), out var patient) ? patient : null;
+    public Task<Patient?> FindPatientBySourceIdentityAsync(string sourceSystem, string sourceRecordId)
+        => Task.FromResult(_bySourceIdentity.TryGetValue((sourceSystem, sourceRecordId), out var patient) ? patient : null);
 }

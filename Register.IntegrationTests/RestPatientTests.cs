@@ -1,7 +1,7 @@
 using System.Net;
 using System.Text.Json;
 using Microsoft.Extensions.DependencyInjection;
-using Register.DTO;
+using Register.App.DTO;
 
 namespace Register.IntegrationTests;
 
@@ -91,7 +91,7 @@ public class RestPatientTests
         var sourcePatientId = Guid.NewGuid();
         var patientRepository = app.Services.GetRequiredService<InMemoryPatientRepository>();
         patientRepository.Seed(
-            new Patient(sourcePatientId), "00000000000", "OTHER", "OTHER-1");
+            new Patient(sourcePatientId, "00000000000"), "00000000000", "OTHER", "OTHER-1");
 
         var response = await client.GetAsync(
             $"/patients?pesel={DiagnosisServer.ValidPesel}" +

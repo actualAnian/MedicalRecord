@@ -3,3 +3,5 @@
 **/.vs/
 Register/.vs/   
 Register/obj/
+Register/appsettings.json
+.env
