@@ -9,6 +9,7 @@ namespace Register.App.Services
     {
         Task<Result<IEnumerable<Diagnosis>>> FindDiagnosesByStatus(Guid patientId, string clinicalStatuses);
         Task<Result<Diagnosis>> Register(RegisterDiagnosisRequest request, CancellationToken cancellationToken = default);
+        Task<Result<Diagnosis>> ChangeStatus(ChangeDiagnosisStatusRequest request, CancellationToken cancellationToken = default);
     }
     public record RegisterDiagnosisRequest(
         string SourceSystem,
@@ -23,6 +24,12 @@ namespace Register.App.Services
         DateOnly? SymptomStartDate,
         int? SymptomStartAge,
         string? VisitId
+    );
+
+    public record ChangeDiagnosisStatusRequest(
+        string SourceSystem,
+        string SourceDiagnosisRecordId,
+        string ClinicalStatus
     );
 
     public class DiagnosisService(IDiagnosisRepository repository, IPatientService patientService, IICD10Catalogue iCD10Catalogue, IExternalRegistryClient externalRegistry) : IDiagnosisService
@@ -92,6 +99,54 @@ namespace Register.App.Services
             var external = await _externalRegistry.RegisterAsync(diagnosis, cancellationToken);
             if (external.IsFailure) return Result<Diagnosis>.Fail(external.Errors);
 
+            return Result<Diagnosis>.Success(diagnosis);
+        }
+
+        public async Task<Result<Diagnosis>> ChangeStatus(
+            ChangeDiagnosisStatusRequest request,
+            CancellationToken cancellationToken = default)
+        {
+
+            if (!Enum.TryParse<ClinicalStatus>(request.ClinicalStatus, ignoreCase: true, out var targetStatus))
+            {
+                var enumValue = string.Join(", ", Enum.GetNames<ClinicalStatus>());
+                return Result<Diagnosis>.Fail([new Error.Validation($"status not found, all statuses: {enumValue}")]);
+            }
+
+            var diagnosis = await _repository.FindBySourceIdentityAsync(request.SourceSystem, request.SourceDiagnosisRecordId);
+            if (diagnosis is null)
+                return Result<Diagnosis>.Fail([new Error.NotFoundOnLookup("Diagnosis", $"Diagnosis with ID {request.SourceDiagnosisRecordId} not found")]);
+
+            DiagnosisState? state = diagnosis.ClinicalStatus switch
+            {
+                ClinicalStatus.Active => new DiagnosisState.Active(),
+                ClinicalStatus.Healed => new DiagnosisState.Healed(),
+                _ => null
+            };
+            if (state is null)
+                return Result<Diagnosis>.Fail([new Error.Validation("Invalid command for current diagnosis state.")]);
+
+            DiagnosisCommand? command = targetStatus switch
+            {
+                ClinicalStatus.Healed => new DiagnosisCommand.SetAsHealed(diagnosis.PatientId),
+                _ => null
+            };
+            if (command is null)
+                return Result<Diagnosis>.Fail([new Error.Validation($"Unsupported status transition to {targetStatus}.")]);
+
+            var outcome = ChangeStatusDecider.Decide(command, state, DateTime.UtcNow);
+            if (outcome.Refusal is not null)
+                return Result<Diagnosis>.Fail([new Error.Validation(outcome.Refusal.Message)]);
+
+            var newState = ChangeStatusDecider.Evolve(outcome.Fact!, state);
+            diagnosis.ClinicalStatus = newState switch
+            {
+                DiagnosisState.Healed => ClinicalStatus.Healed,
+                DiagnosisState.Active => ClinicalStatus.Active,
+                _ => throw new InvalidOperationException("Unsupported diagnosis state.")
+            };
+
+            await _repository.UpdateAsync(diagnosis);
             return Result<Diagnosis>.Success(diagnosis);
         }
     }

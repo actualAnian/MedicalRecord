@@ -11,6 +11,7 @@ public class DiagnosisServiceTests
     private const string CodingSystem = "http://hl7.org/fhir/sid/icd-10";
     private const string ValidIcdCode = "A00";
     private const string ValidPesel = "44051401359";
+    private const string ValidSourceSystem = "HIS";
     private const string ValidMedicalRecordNumber = "MR-123";
     private static readonly Guid PatientId = Guid.Parse("11111111-1111-1111-1111-111111111111");
 
@@ -181,6 +182,132 @@ public class DiagnosisServiceTests
         Assert.Empty(repository.Added);
     }
 
+    [Fact]
+    public async Task ChangeStatus_ActiveDiagnosisToHealed_UpdatesRepository()
+    {
+        var diagnosis = DiagnosisFor(PatientId, ClinicalStatus.Active);
+        var repository = new FakeDiagnosisRepository { ExistingDiagnosis = diagnosis };
+        var service = CreateService(repository);
+        var request = ChangeStatusRequest(sourceDiagnosisRecordId: diagnosis.SourceRecordId);
+
+        var result = await service.ChangeStatus(request);
+
+        Assert.True(result.IsSuccess);
+        Assert.Equal(ClinicalStatus.Healed, result.Value.ClinicalStatus);
+        Assert.Equal(diagnosis.SourceSystem, repository.LastSourceSystem);
+        Assert.Equal(diagnosis.SourceRecordId, repository.LastSourceRecordId);
+        var updated = Assert.Single(repository.Updated);
+        Assert.Same(diagnosis, updated);
+        Assert.Equal(ClinicalStatus.Healed, updated.ClinicalStatus);
+    }
+
+    [Fact]
+    public async Task ChangeStatus_StatusIsCaseInsensitive_UpdatesDiagnosis()
+    {
+        var diagnosis = DiagnosisFor(PatientId, ClinicalStatus.Active);
+        var repository = new FakeDiagnosisRepository { ExistingDiagnosis = diagnosis };
+        var service = CreateService(repository);
+
+        var result = await service.ChangeStatus(
+            ChangeStatusRequest(
+                sourceDiagnosisRecordId: diagnosis.SourceRecordId,
+                clinicalStatus: "healed"));
+
+        Assert.True(result.IsSuccess);
+        Assert.Equal(ClinicalStatus.Healed, diagnosis.ClinicalStatus);
+        Assert.Single(repository.Updated);
+    }
+
+    [Fact]
+    public async Task ChangeStatus_DiagnosisNotFound_ReturnsLookupErrorWithMessage()
+    {
+        var repository = new FakeDiagnosisRepository();
+        var service = CreateService(repository);
+        var request = ChangeStatusRequest(sourceDiagnosisRecordId: "D-MISSING");
+
+        var result = await service.ChangeStatus(request);
+
+        Assert.True(result.IsFailure);
+        var error = Assert.IsType<Error.NotFoundOnLookup>(Assert.Single(result.Errors));
+        Assert.Equal("NotFoundOnLookup", error.Code);
+        Assert.Equal(
+            "Diagnosis not found. Message: Diagnosis with ID D-MISSING not found",
+            error.Message);
+        Assert.Empty(repository.Updated);
+    }
+
+    [Fact]
+    public async Task ChangeStatus_AlreadyHealed_ReturnsRefusalMessageAndDoesNotUpdate()
+    {
+        var diagnosis = DiagnosisFor(PatientId, ClinicalStatus.Healed);
+        var repository = new FakeDiagnosisRepository { ExistingDiagnosis = diagnosis };
+        var service = CreateService(repository);
+
+        var result = await service.ChangeStatus(
+            ChangeStatusRequest(sourceDiagnosisRecordId: diagnosis.SourceRecordId));
+
+        Assert.True(result.IsFailure);
+        var error = Assert.IsType<Error.Validation>(Assert.Single(result.Errors));
+        Assert.Equal("ValidationError", error.Code);
+        Assert.Equal("Diagnosis is already healed.", error.Message);
+        Assert.Empty(repository.Updated);
+    }
+
+    [Fact]
+    public async Task ChangeStatus_UnsupportedCurrentState_ReturnsValidationMessage()
+    {
+        var diagnosis = DiagnosisFor(PatientId, ClinicalStatus.Return);
+        var repository = new FakeDiagnosisRepository { ExistingDiagnosis = diagnosis };
+        var service = CreateService(repository);
+
+        var result = await service.ChangeStatus(
+            ChangeStatusRequest(sourceDiagnosisRecordId: diagnosis.SourceRecordId));
+
+        Assert.True(result.IsFailure);
+        var error = Assert.IsType<Error.Validation>(Assert.Single(result.Errors));
+        Assert.Equal("ValidationError", error.Code);
+        Assert.Equal("Invalid command for current diagnosis state.", error.Message);
+        Assert.Empty(repository.Updated);
+    }
+
+    [Fact]
+    public async Task ChangeStatus_UnsupportedTargetStatus_ReturnsValidationMessage()
+    {
+        var diagnosis = DiagnosisFor(PatientId, ClinicalStatus.Active);
+        var repository = new FakeDiagnosisRepository { ExistingDiagnosis = diagnosis };
+        var service = CreateService(repository);
+
+        var result = await service.ChangeStatus(
+            ChangeStatusRequest(
+                sourceDiagnosisRecordId: diagnosis.SourceRecordId,
+                clinicalStatus: "Active"));
+
+        Assert.True(result.IsFailure);
+        var error = Assert.IsType<Error.Validation>(Assert.Single(result.Errors));
+        Assert.Equal("ValidationError", error.Code);
+        Assert.Equal("Unsupported status transition to Active.", error.Message);
+        Assert.Empty(repository.Updated);
+    }
+
+    [Fact]
+    public async Task ChangeStatus_UnknownStatus_ReturnsValidationMessage()
+    {
+        var diagnosis = DiagnosisFor(PatientId, ClinicalStatus.Active);
+        var repository = new FakeDiagnosisRepository { ExistingDiagnosis = diagnosis };
+        var service = CreateService(repository);
+
+        var result = await service.ChangeStatus(
+            ChangeStatusRequest(
+                sourceDiagnosisRecordId: diagnosis.SourceRecordId,
+                clinicalStatus: "Unknown"));
+
+        Assert.True(result.IsFailure);
+        var error = Assert.IsType<Error.Validation>(Assert.Single(result.Errors));
+        Assert.Equal("ValidationError", error.Code);
+        Assert.Equal("status not found, all statuses: Active, Healed, Return", error.Message);
+        Assert.Empty(repository.Updated);
+    }
+
     private static DiagnosisService CreateService(
         FakeDiagnosisRepository repository,
         FakePatientService? patientService = null,
@@ -210,6 +337,12 @@ public class DiagnosisServiceTests
             SymptomStartAge: null,
             VisitId: "VISIT-1");
 
+    private static ChangeDiagnosisStatusRequest ChangeStatusRequest(
+        string sourceSystem = ValidSourceSystem,
+        string sourceDiagnosisRecordId = "D-123",
+        string clinicalStatus = "Healed")
+        => new(sourceSystem, sourceDiagnosisRecordId, clinicalStatus);
+
     private static Diagnosis DiagnosisFor(Guid patientId, ClinicalStatus status) => new(
         Guid.NewGuid(),
         "HIS",
@@ -225,9 +358,14 @@ public class DiagnosisServiceTests
     {
         public IEnumerable<Diagnosis> ByStatus { get; init; } = [];
         public Diagnosis? ExistingDiagnosis { get; init; }
+        public Diagnosis? DiagnosisById { get; init; }
         public Guid? LastPatientId { get; private set; }
         public ClinicalStatus? LastStatus { get; private set; }
+        public Guid? LastDiagnosisId { get; private set; }
+        public string? LastSourceSystem { get; private set; }
+        public string? LastSourceRecordId { get; private set; }
         public List<Diagnosis> Added { get; } = [];
+        public List<Diagnosis> Updated { get; } = [];
 
         public Task<IEnumerable<Diagnosis>> FindByStatusAsync(Guid patientId, ClinicalStatus status)
         {
@@ -237,11 +375,27 @@ public class DiagnosisServiceTests
         }
 
         public Task<Diagnosis?> FindBySourceIdentityAsync(string sourceSystem, string sourceRecordId)
-            => Task.FromResult(ExistingDiagnosis);
+        {
+            LastSourceSystem = sourceSystem;
+            LastSourceRecordId = sourceRecordId;
+            return Task.FromResult(ExistingDiagnosis);
+        }
+
+        public Task<Diagnosis?> FindByIdAsync(Guid id)
+        {
+            LastDiagnosisId = id;
+            return Task.FromResult(DiagnosisById);
+        }
 
         public Task AddAsync(Diagnosis diagnosis)
         {
             Added.Add(diagnosis);
+            return Task.CompletedTask;
+        }
+
+        public Task UpdateAsync(Diagnosis diagnosis)
+        {
+            Updated.Add(diagnosis);
             return Task.CompletedTask;
         }
     }

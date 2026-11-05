@@ -131,5 +131,53 @@ namespace Register.DataBase.Repositories
                 ? null
                 : DiagnosisMapper.ToDomain(dbDiagnosis, _iCD10Catalogue);
         }
+
+        public async Task<Diagnosis?> FindByIdAsync(Guid id)
+        {
+            const string sql = """
+                SELECT
+                    Id,
+                    SourceSystem,
+                    SourceRecordId,
+                    PatientId,
+                    IcdSystem,
+                    IcdCode,
+                    DiagnosisDate,
+                    ClinicalStatus,
+                    ConfirmationStatus,
+                    SymptomStartType,
+                    SymptomStartDate,
+                    SymptomStartAge
+                FROM dbo.Diagnoses
+                WHERE Id = @Id;
+                """;
+
+            await using var connection = new SqlConnection(_connectionString);
+
+            var dbDiagnosis = await connection.QuerySingleOrDefaultAsync<DiagnosisDb>(
+                sql,
+                new { Id = id });
+
+            return dbDiagnosis is null
+                ? null
+                : DiagnosisMapper.ToDomain(dbDiagnosis, _iCD10Catalogue);
+        }
+
+        public async Task UpdateAsync(Diagnosis diagnosis)
+        {
+            const string sql = """
+                UPDATE dbo.Diagnoses
+                SET ClinicalStatus = @ClinicalStatus
+                WHERE Id = @Id;
+                """;
+
+            await using var connection = new SqlConnection(_connectionString);
+
+            await connection.ExecuteAsync(sql, new
+            {
+                diagnosis.Id,
+                diagnosis.ClinicalStatus
+            });
+        }
     }
 }

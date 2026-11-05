@@ -43,7 +43,7 @@ public class RestPatientTests
     }
 
     [Fact]
-    public async Task GetPatient_UnknownPesel_ReturnsBadRequestWithNotFoundOnLookup()
+    public async Task GetPatient_UnknownPesel_ReturnsForbiddenWithNotFoundOnLookup()
     {
         var (app, client) = await DiagnosisServer.CreateAsync();
         await using var _ = app;
@@ -51,12 +51,14 @@ public class RestPatientTests
 
         var response = await client.GetAsync("/patients?pesel=00000000000");
 
-        Assert.Equal(HttpStatusCode.BadRequest, response.StatusCode);
-        Assert.Contains("NotFoundOnLookup", await response.Content.ReadAsStringAsync());
+        Assert.Equal(HttpStatusCode.Forbidden, response.StatusCode);
+        using var body = JsonDocument.Parse(await response.Content.ReadAsStringAsync());
+        var error = Assert.Single(body.RootElement.GetProperty("errors").EnumerateArray().ToList());
+        Assert.Equal("NotFoundOnLookup", error.GetProperty("code").GetString());
     }
 
     [Fact]
-    public async Task GetPatient_UnknownSourceIdentity_ReturnsBadRequestWithNotFoundOnLookup()
+    public async Task GetPatient_UnknownSourceIdentity_ReturnsForbiddenWithNotFoundOnLookup()
     {
         var (app, client) = await DiagnosisServer.CreateAsync();
         await using var _ = app;
@@ -65,8 +67,10 @@ public class RestPatientTests
         var response = await client.GetAsync(
             "/patients?sourceSystem=UNKNOWN&sourceRecordId=UNKNOWN");
 
-        Assert.Equal(HttpStatusCode.BadRequest, response.StatusCode);
-        Assert.Contains("NotFoundOnLookup", await response.Content.ReadAsStringAsync());
+        Assert.Equal(HttpStatusCode.Forbidden, response.StatusCode);
+        using var body = JsonDocument.Parse(await response.Content.ReadAsStringAsync());
+        var error = Assert.Single(body.RootElement.GetProperty("errors").EnumerateArray().ToList());
+        Assert.Equal("NotFoundOnLookup", error.GetProperty("code").GetString());
     }
 
     [Fact]

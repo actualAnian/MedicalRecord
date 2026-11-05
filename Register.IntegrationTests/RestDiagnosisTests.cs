@@ -42,7 +42,7 @@ public class RestDiagnosisTests
     }
 
     [Fact]
-    public async Task MapDiagnosis_UnknownIcdCode_ReturnsBadRequest()
+    public async Task MapDiagnosis_UnknownIcdCode_ReturnsNotFound()
     {
         var (app, client) = await DiagnosisServer.CreateAsync();
         await using var _ = app;
@@ -52,7 +52,10 @@ public class RestDiagnosisTests
 
         var response = await client.PostAsJsonAsync("/diagnoses", request);
 
-        Assert.Equal(HttpStatusCode.BadRequest, response.StatusCode);
+        Assert.Equal(HttpStatusCode.NotFound, response.StatusCode);
+        using var body = JsonDocument.Parse(await response.Content.ReadAsStringAsync());
+        var error = Assert.Single(body.RootElement.GetProperty("errors").EnumerateArray().ToList());
+        Assert.Equal("NotFound", error.GetProperty("code").GetString());
     }
 
     [Fact]
@@ -71,6 +74,83 @@ public class RestDiagnosisTests
         var response = await client.PostAsJsonAsync("/diagnoses", request);
 
         Assert.Equal(HttpStatusCode.BadRequest, response.StatusCode);
+    }
+
+    [Fact]
+    public async Task ChangeDiagnosisStatus_ValidSourceIdentity_UpdatesDiagnosis()
+    {
+        var (app, client) = await DiagnosisServer.CreateAsync();
+        await using var _ = app;
+        using var __ = client;
+
+        var diagnosis = DiagnosisServer.DiagnosisFor(
+            DiagnosisServer.ValidPatientId, ClinicalStatus.Active, "D-STATUS");
+        var repository = app.Services.GetRequiredService<InMemoryDiagnosisRepository>();
+        repository.Seed(diagnosis);
+
+        var response = await client.PostAsJsonAsync("/diagnoses/status",
+            new
+            {
+                sourceSystem = diagnosis.SourceSystem,
+                sourceDiagnosisRecordId = diagnosis.SourceRecordId,
+                clinicalStatus = "Healed"
+            });
+
+        Assert.Equal(HttpStatusCode.OK, response.StatusCode);
+        var updated = await repository.FindByIdAsync(diagnosis.Id);
+        Assert.NotNull(updated);
+        Assert.Equal(ClinicalStatus.Healed, updated.ClinicalStatus);
+    }
+
+    [Fact]
+    public async Task ChangeDiagnosisStatus_AlreadyHealed_ReturnsBadRequestWithMessage()
+    {
+        var (app, client) = await DiagnosisServer.CreateAsync();
+        await using var _ = app;
+        using var __ = client;
+
+        var diagnosis = DiagnosisServer.DiagnosisFor(
+            DiagnosisServer.ValidPatientId, ClinicalStatus.Healed, "D-HEALED");
+        var repository = app.Services.GetRequiredService<InMemoryDiagnosisRepository>();
+        repository.Seed(diagnosis);
+
+        var response = await client.PostAsJsonAsync("/diagnoses/status",
+            new
+            {
+                sourceSystem = diagnosis.SourceSystem,
+                sourceDiagnosisRecordId = diagnosis.SourceRecordId,
+                clinicalStatus = "Healed"
+            });
+
+        Assert.Equal(HttpStatusCode.BadRequest, response.StatusCode);
+        using var body = JsonDocument.Parse(await response.Content.ReadAsStringAsync());
+        var error = Assert.Single(body.RootElement.GetProperty("errors").EnumerateArray().ToList());
+        Assert.Equal("ValidationError", error.GetProperty("code").GetString());
+        Assert.Equal("Diagnosis is already healed.", error.GetProperty("message").GetString());
+    }
+
+    [Fact]
+    public async Task ChangeDiagnosisStatus_DiagnosisNotFound_ReturnsForbiddenWithMessage()
+    {
+        var (app, client) = await DiagnosisServer.CreateAsync();
+        await using var _ = app;
+        using var __ = client;
+
+        var response = await client.PostAsJsonAsync("/diagnoses/status",
+            new
+            {
+                sourceSystem = DiagnosisServer.ValidSourceSystem,
+                sourceDiagnosisRecordId = "D-MISSING",
+                clinicalStatus = "Healed"
+            });
+
+        Assert.Equal(HttpStatusCode.Forbidden, response.StatusCode);
+        using var body = JsonDocument.Parse(await response.Content.ReadAsStringAsync());
+        var error = Assert.Single(body.RootElement.GetProperty("errors").EnumerateArray().ToList());
+        Assert.Equal("NotFoundOnLookup", error.GetProperty("code").GetString());
+        Assert.Equal(
+            "Diagnosis not found. Message: Diagnosis with ID D-MISSING not found",
+            error.GetProperty("message").GetString());
     }
 
     [Fact]

@@ -11,19 +11,21 @@ public static class RestRegister
         app.MapPost("/diagnoses", async (RegisterDiagnosisRequest request, [Service] IDiagnosisService service) =>
             {
                 var result = await service.Register(request);
+                return result.ToHttpResult();
+            });
 
-                if (result.IsSuccess) return Results.Ok("created");
-                var error = result.Errors;
-                return Results.BadRequest(error);
+
+        app.MapPost("/diagnoses/status", async (ChangeDiagnosisStatusRequest request, [Service] IDiagnosisService service) =>
+            {
+                var result = await service.ChangeStatus(request);
+                return result.ToHttpResult();
             });
 
 
         app.MapGet("/patients/{patientId}/diagnoses", async (Guid patientId, string clinicalStatuses, [Service] IDiagnosisService service) =>
             {
                 var result = await service.FindDiagnosesByStatus(patientId, clinicalStatuses);
-                if (result.IsSuccess) return Results.Ok(result.Value);
-                var error = result.Errors;
-                return Results.BadRequest(error);
+                return result.ToHttpResult();
             });
 
         app.MapGet("/patients", async (string? pesel, string? sourceSystem, string? sourceRecordId, [Service] IPatientService service) =>
@@ -31,16 +33,12 @@ public static class RestRegister
                 if (!string.IsNullOrWhiteSpace(pesel))
                 {
                     var result = await service.FindPatientByPeselAsync(pesel);
-                    if (result.IsSuccess) return Results.Ok(result.Value);
-                    var error = result.Errors;
-                    return Results.BadRequest(error);
+                    return result.ToHttpResult();
                 }
                 if (!string.IsNullOrWhiteSpace(sourceSystem) && !string.IsNullOrWhiteSpace(sourceRecordId))
                 {
                     var result = await service.FindPatientBySourceIdentityAsync(sourceSystem, sourceRecordId);
-                    if (result.IsSuccess) return Results.Ok(result.Value);
-                    var error = result.Errors;
-                    return Results.BadRequest(error);
+                    return result.ToHttpResult();
                 }
                 return Results.BadRequest("Either pesel or sourceSystem and sourceRecordId must be provided.");
             });

@@ -24,5 +24,15 @@ public sealed class InMemoryDiagnosisRepository : IDiagnosisRepository
         return Task.CompletedTask;
     }
 
+    public Task<Diagnosis?> FindByIdAsync(Guid id)
+        => Task.FromResult(_diagnoses.FirstOrDefault(x => x.Id == id));
+
+    public Task UpdateAsync(Diagnosis diagnosis)
+    {
+        var index = _diagnoses.FindIndex(x => x.Id == diagnosis.Id);
+        if (index >= 0) _diagnoses[index] = diagnosis;
+        return Task.CompletedTask;
+    }
+
     public void Seed(params Diagnosis[] diagnoses) => _diagnoses.AddRange(diagnoses);
 }
