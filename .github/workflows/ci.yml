@@ -16,10 +16,10 @@ jobs:
     env:
       DOTNET_NOLOGO: true
       DOTNET_CLI_TELEMETRY_OPTOUT: true
-      MSSQL_SA_PASSWORD: TestSAPassword!
+      MSSQL_SA_PASSWORD: TestSAPassword!124
       DB_USER: TestUser
-      DB_PASSWORD: TestUserPassword!
-      ConnectionStrings__DefaultConnection: "Server=localhost,1433;Database=MedicalRegister;User Id=TestUser;Password=TestUserPassword!;TrustServerCertificate=True;"
+      DB_PASSWORD: TestUserPassword!124
+      ConnectionStrings__DefaultConnection: "Server=localhost,1433;Database=MedicalRegister;User Id=TestUser;Password=TestUserPassword!124;TrustServerCertificate=True;"
 
     steps:
       - name: Checkout
