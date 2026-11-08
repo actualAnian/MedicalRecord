@@ -23,28 +23,4 @@ namespace Register.App.Endpoints
             else return ChangeDiagnosisStatusPayload.Updated(result.GetValueOrThrow());
         }
     }
-
-    public record RegisterDiagnosisPayload(
-        bool Success,
-        IReadOnlyList<Error>? Errors)
-        {
-            public static RegisterDiagnosisPayload Created()
-                => new(true, default);
-
-            public static RegisterDiagnosisPayload Invalid(
-                IReadOnlyList<Error> error)
-                => new(false, error);
-        }
-
-    public record ChangeDiagnosisStatusPayload(
-        bool Success,
-        IReadOnlyList<Error>? Errors,
-        Diagnosis? Diagnosis)
-    {
-        public static ChangeDiagnosisStatusPayload Updated(Diagnosis diagnosis)
-            => new(true, default, diagnosis);
-        public static ChangeDiagnosisStatusPayload Invalid(
-            IReadOnlyList<Error> error)
-            => new(false, error, default);
-    }
 }

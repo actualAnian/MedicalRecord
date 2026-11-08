@@ -5,6 +5,7 @@ using Register.App.Endpoints;
 using Register.App.ExternalAPI;
 using Register.App.Services;
 using Register.DataBase.Repositories;
+using System.Text.Json.Serialization;
 
 namespace Register.App;
 
@@ -20,8 +21,8 @@ public static class ProgramExtensions
         services.AddScoped<IDiagnosisRepository>(sp =>
             new DiagnosisRepository(
                 connectionString,
-                sp.GetRequiredService<IICD10Catalogue>()));
-        services.AddSingleton<IICD10Catalogue, ICD10Catalogue>();
+                sp.GetRequiredService<IICD10CatalogueService>()));
+        services.AddScoped<IICD10CatalogueService, ICD10CatalogueService>();
         services.AddScoped<IDiagnosisService, DiagnosisService>();
         services.AddScoped<IPatientService, PatientService>();
         services.AddScoped<IPatientRepository>(_ => new PatientRepository(connectionString));
@@ -32,18 +33,23 @@ public static class ProgramExtensions
         services.AddOpenApi();
         services.AddGraphQLServer()
             .AddQueryType<DiagnosisQueries>()
-            .AddMutationType<DiagnosisMutation>()
-            .AllowIntrospection(true);
+            .AddMutationType<DiagnosisMutation>();
+
+        services.ConfigureHttpJsonOptions(options =>
+        {
+            options.SerializerOptions.Converters.Add(
+                new JsonStringEnumConverter()
+            );
+        });
         return services;
     }
     public static WebApplication MapApplication(this WebApplication app)
     {
         app.MapOpenApi();
-        //app.MapScalarApiReference();
         app.MapControllers();
 
-        //app.MapPatientApi();
         app.MapDiagnosis();
+        app.MapPatients();
         app.MapExternalRegistry();
         app.MapGraphQL("/graphql");
 

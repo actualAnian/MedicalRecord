@@ -1,7 +1,9 @@
 using System.Net;
 using System.Net.Sockets;
+using Dapper;
 using Microsoft.AspNetCore.Builder;
 using Microsoft.AspNetCore.Hosting;
+using Microsoft.Data.SqlClient;
 using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.Logging;
 using Register.App;
@@ -20,6 +22,14 @@ public static class DiagnosisServer
     public const string ValidPatientSourceRecordId = "PATIENT-1";
     public const string ValidMedicalRecordNumber = "MR-123";
     public static readonly Guid ValidPatientId = Guid.Parse("11111111-1111-1111-1111-111111111111");
+
+    private const string DefaultConnectionString =
+        "Server=localhost,1433;Database=MedicalRegister;User Id=registerUser;Password=UserPassword!;TrustServerCertificate=True;";
+
+    public static string ConnectionString =>
+        Environment.GetEnvironmentVariable("ConnectionStrings__DefaultConnection")
+        ?? Environment.GetEnvironmentVariable("MEDICAL_REGISTER_TEST_CONNECTION")
+        ?? DefaultConnectionString;
 
     public static RegisterDiagnosisRequest ValidRequest(
         string? sourceSystem = null,
@@ -47,13 +57,15 @@ public static class DiagnosisServer
         Guid patientId,
         ClinicalStatus status,
         string? sourceRecordId = null,
-        string sourceSystem = "HIS")
+        string sourceSystem = "HIS",
+        string icdSystem = ValidCodingSystem,
+        string icdCode = ValidIcdCode)
         => new(
             Guid.NewGuid(),
             sourceSystem,
             sourceRecordId ?? Guid.NewGuid().ToString("N"),
             patientId,
-            new ICD10(ValidCodingSystem, ValidIcdCode, "Cholera"),
+            new ICD10(icdSystem, icdCode, "Cholera"),
             DateOnly.FromDateTime(DateTime.UtcNow.AddDays(-1)),
             status,
             ConfirmationStatus.Confirmed,
@@ -61,6 +73,13 @@ public static class DiagnosisServer
 
     public static async Task<(WebApplication App, HttpClient Client)> CreateAsync()
     {
+        await ResetDatabaseAsync();
+        await AddPatientAsync(
+            ValidPatientId,
+            ValidPesel,
+            (ValidSourceSystem, ValidPatientSourceRecordId),
+            (ValidSourceSystem, ValidMedicalRecordNumber));
+
         var builder = WebApplication.CreateBuilder(new WebApplicationOptions
         {
             EnvironmentName = "Testing"
@@ -69,37 +88,10 @@ public static class DiagnosisServer
         builder.WebHost.UseUrls(address);
         builder.Logging.SetMinimumLevel(LogLevel.Warning);
 
-        // Required by ConfigurationServices; persistence is replaced with in-memory fakes below.
-        builder.Configuration["ConnectionStrings:DefaultConnection"] =
-            "Server=localhost,1433;Database=MedicalRegister;User Id=registerUser;Password=unused;TrustServerCertificate=True;";
-        // The service under test calls its own /externalRequest endpoint over HTTP.
+        builder.Configuration["ConnectionStrings:DefaultConnection"] = ConnectionString;
         builder.Configuration["ExternalRegistry:BaseUrl"] = address;
 
         builder.Services.ConfigurationServices(builder.Configuration);
-
-        // Replace real persistence and the file-backed catalogue with deterministic fakes.
-        var toRemove = builder.Services
-            .Where(d => d.ServiceType == typeof(IDiagnosisRepository)
-                     || d.ServiceType == typeof(DiagnosisRepository)
-                     || d.ServiceType == typeof(IPatientRepository)
-                     || d.ServiceType == typeof(IICD10Catalogue))
-            .ToList();
-        foreach (var d in toRemove) builder.Services.Remove(d);
-
-        builder.Services.AddSingleton<InMemoryDiagnosisRepository>();
-        builder.Services.AddScoped<IDiagnosisRepository>(sp =>
-            sp.GetRequiredService<InMemoryDiagnosisRepository>());
-        builder.Services.AddSingleton<IICD10Catalogue, TestIcd10Catalogue>();
-
-        var patientRepository = new InMemoryPatientRepository();
-        patientRepository.Seed(
-            new Patient(ValidPatientId, ValidPesel),
-            ValidPesel,
-            ValidSourceSystem,
-            ValidPatientSourceRecordId);
-        builder.Services.AddSingleton(patientRepository);
-        builder.Services.AddScoped<IPatientRepository>(sp =>
-            sp.GetRequiredService<InMemoryPatientRepository>());
 
         var app = builder.Build();
         app.UseDeveloperExceptionPage();
@@ -110,6 +102,88 @@ public static class DiagnosisServer
         return (app, client);
     }
 
+    public static async Task ResetDatabaseAsync()
+    {
+        await using var connection = new SqlConnection(ConnectionString);
+
+        try
+        {
+            await connection.OpenAsync();
+        }
+        catch (SqlException exception)
+        {
+            throw new InvalidOperationException(
+                "Integration tests require the SQL Server database to be running. " +
+                "Start it with 'docker compose up -d' and verify the connection string.",
+                exception);
+        }
+
+        await connection.ExecuteAsync("""
+            DELETE FROM dbo.Diagnoses;
+            DELETE FROM dbo.PatientExternalIdentifiers;
+            DELETE FROM dbo.Patients;
+            """);
+    }
+
+    public static async Task AddPatientAsync(
+        Guid patientId,
+        string pesel,
+        params (string SourceSystem, string SourceRecordId)[] identifiers)
+    {
+        await using var connection = new SqlConnection(ConnectionString);
+        await connection.OpenAsync();
+
+        await connection.ExecuteAsync(
+            "INSERT INTO dbo.Patients (Id, PESEL) VALUES (@PatientId, @Pesel);",
+            new { PatientId = patientId, Pesel = pesel });
+
+        foreach (var identifier in identifiers)
+        {
+            await connection.ExecuteAsync("""
+                INSERT INTO dbo.PatientExternalIdentifiers
+                    (SourceSystem, SourceRecordId, PatientId)
+                VALUES
+                    (@SourceSystem, @SourceRecordId, @PatientId);
+                """,
+                new
+                {
+                    identifier.SourceSystem,
+                    identifier.SourceRecordId,
+                    PatientId = patientId
+                });
+        }
+    }
+
+    public static async Task AddDiagnosesAsync(
+        WebApplication app,
+        params Diagnosis[] diagnoses)
+    {
+        using var scope = app.Services.CreateScope();
+        var repository = scope.ServiceProvider.GetRequiredService<IDiagnosisRepository>();
+
+        foreach (var diagnosis in diagnoses)
+            await repository.AddAsync(diagnosis);
+    }
+
+    public static async Task<Diagnosis?> FindDiagnosisAsync(
+        WebApplication app,
+        Guid diagnosisId)
+    {
+        using var scope = app.Services.CreateScope();
+        var repository = scope.ServiceProvider.GetRequiredService<IDiagnosisRepository>();
+        return await repository.FindByIdAsync(diagnosisId);
+    }
+
+    public static async Task<Diagnosis?> FindDiagnosisAsync(
+        WebApplication app,
+        string sourceSystem,
+        string sourceRecordId)
+    {
+        using var scope = app.Services.CreateScope();
+        var repository = scope.ServiceProvider.GetRequiredService<IDiagnosisRepository>();
+        return await repository.FindBySourceIdentityAsync(sourceSystem, sourceRecordId);
+    }
+
     private static int GetFreeTcpPort()
     {
         var listener = new TcpListener(IPAddress.Loopback, 0);
@@ -118,24 +192,4 @@ public static class DiagnosisServer
         listener.Stop();
         return port;
     }
-}
-
-public sealed class TestIcd10Catalogue : IICD10Catalogue
-{
-    private static readonly Dictionary<(string System, string Code), string> KnownCodes = new()
-    {
-        [("http://hl7.org/fhir/sid/icd-10", "A00")] = "Cholera",
-        [("http://hl7.org/fhir/sid/icd-10", "A00.1")] = "Typhoid and paratyphoid fevers",
-        [("http://hl7.org/fhir/sid/icd-10", "A02.0")] = "Salmonella enteritis",
-        [("http://hl7.org/fhir/sid/icd-10", "A03")] = "Shigellosis",
-        [("http://hl7.org/fhir/sid/icd-10", "A04")] = "Other bacterial intestinal infections",
-    };
-
-    public ICD10? Find(string system, string code)
-        => KnownCodes.TryGetValue((system, code), out var display)
-            ? new ICD10(system, code, display)
-            : null;
-
-    public string? GetDescriptionForCode(string system, string code)
-        => KnownCodes.TryGetValue((system, code), out var display) ? display : null;
 }

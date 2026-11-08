@@ -1,5 +1,5 @@
-﻿using Register.App;
-using Register.App.DTO;
+﻿using Register.App.DTO;
+using Register.App.Services;
 using Register.DataBase.DTO;
 using System;
 
@@ -42,7 +42,7 @@ namespace Register.DataBase.Mappers
             return result;
         }
 
-        internal static Diagnosis ToDomain(DiagnosisDb dbDiagnosis, IICD10Catalogue catalogue)
+        internal static Diagnosis ToDomain(DiagnosisDb dbDiagnosis, IICD10CatalogueService catalogue)
         {
             var icd10 = catalogue.Find(dbDiagnosis.IcdSystem, dbDiagnosis.IcdCode)
                 ?? throw new InvalidOperationException(

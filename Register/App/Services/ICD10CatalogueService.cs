@@ -1,16 +1,11 @@
 ﻿using Register.App.DTO;
 
-namespace Register.App
+namespace Register.App.Services
 {
-    public interface IICD10Catalogue
-    {
-        ICD10? Find(string system, string code);
-        string? GetDescriptionForCode(string system, string code);
-    }
-    public class ICD10Catalogue : IICD10Catalogue
+    public class ICD10CatalogueService : IICD10CatalogueService
     {
         private readonly IEnumerable<ICD10>? ICD10Codes;
-        public ICD10Catalogue()
+        public ICD10CatalogueService()
         {
             ICD10Codes = ICD10Reader.Read("icd10Codes.json");
         }

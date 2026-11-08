@@ -1,9 +1,10 @@
 ﻿using Register.App.DTO;
+using Register.App.Services;
 namespace Register.App.Builders
 {
     class ICD10CodeBuilder
     {
-        public static Result<ICD10> Build(IICD10Catalogue catalogue, string system, string code)
+        public static Result<ICD10> Build(IICD10CatalogueService catalogue, string system, string code)
         {
             var display = catalogue.GetDescriptionForCode(system, code);
             if (display is null)

@@ -5,12 +5,6 @@ using Register.DataBase.Repositories;
 
 namespace Register.App.Services
 {
-    public interface IDiagnosisService
-    {
-        Task<Result<IEnumerable<Diagnosis>>> FindDiagnosesByStatus(Guid patientId, string clinicalStatuses);
-        Task<Result<Diagnosis>> Register(RegisterDiagnosisRequest request, CancellationToken cancellationToken = default);
-        Task<Result<Diagnosis>> ChangeStatus(ChangeDiagnosisStatusRequest request, CancellationToken cancellationToken = default);
-    }
     public record RegisterDiagnosisRequest(
         string SourceSystem,
         string SourceRecordId,
@@ -32,11 +26,11 @@ namespace Register.App.Services
         string ClinicalStatus
     );
 
-    public class DiagnosisService(IDiagnosisRepository repository, IPatientService patientService, IICD10Catalogue iCD10Catalogue, IExternalRegistryClient externalRegistry) : IDiagnosisService
+    public class DiagnosisService(IDiagnosisRepository repository, IPatientService patientService, IICD10CatalogueService iCD10Catalogue, IExternalRegistryClient externalRegistry) : IDiagnosisService
     {
         private readonly IDiagnosisRepository _repository = repository;
         private readonly IPatientService _patientService = patientService;
-        private readonly IICD10Catalogue _iCD10Catalogue = iCD10Catalogue;
+        private readonly IICD10CatalogueService _iCD10Catalogue = iCD10Catalogue;
         private readonly IExternalRegistryClient _externalRegistry = externalRegistry;
 
         public async Task<Result<IEnumerable<Diagnosis>>> FindDiagnosesByStatus(Guid patientId, string clinicalStatus)
@@ -148,6 +142,19 @@ namespace Register.App.Services
 
             await _repository.UpdateAsync(diagnosis);
             return Result<Diagnosis>.Success(diagnosis);
+        }
+
+        public async Task<Result<int>> GetAmountOfDiagnosisWithICDCode(string icdSystem, string icdCode)
+        {
+            if (string.IsNullOrWhiteSpace(icdSystem) ||
+                string.IsNullOrWhiteSpace(icdCode))
+            {
+                return Result<int>.Fail(
+                    [new Error.Validation("IcdSystem and IcdCode must be provided")]);
+            }
+
+            var result = await _repository.GetAmountOfDiagnosisWithICDCode(icdSystem, icdCode);
+            return Result<int>.Success(result);
         }
     }
 }

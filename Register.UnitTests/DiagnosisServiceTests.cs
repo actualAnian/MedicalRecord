@@ -52,6 +52,25 @@ public class DiagnosisServiceTests
         Assert.Equal(ClinicalStatus.Healed, repository.LastStatus);
     }
 
+    [Theory]
+    [InlineData("")]
+    [InlineData(" ")]
+    public async Task FindDiagnosesByStatus_BlankStatus_ReturnsValidationError(string status)
+    {
+        var repository = new FakeDiagnosisRepository { ByStatus = [] };
+        var service = CreateService(repository);
+
+        var result = await service.FindDiagnosesByStatus(PatientId, status);
+
+        Assert.True(result.IsFailure);
+        var error = Assert.IsType<Error.Validation>(Assert.Single(result.Errors));
+        Assert.Equal("ValidationError", error.Code);
+        Assert.Contains(nameof(ClinicalStatus.Active), error.Message);
+        Assert.Contains(nameof(ClinicalStatus.Healed), error.Message);
+        Assert.Contains(nameof(ClinicalStatus.Return), error.Message);
+        Assert.Null(repository.LastPatientId);
+    }
+
     [Fact]
     public async Task FindDiagnosesByStatus_UnknownStatus_ReturnsValidationError()
     {
@@ -92,7 +111,8 @@ public class DiagnosisServiceTests
         var existing = DiagnosisFor(PatientId, ClinicalStatus.Active);
         var repository = new FakeDiagnosisRepository { ExistingDiagnosis = existing };
         var patients = new FakePatientService(byPesel: Result<Patient>.Success(new Patient(PatientId, ValidPesel)));
-        var service = CreateService(repository, patients);
+        var external = new FakeExternalRegistryClient();
+        var service = CreateService(repository, patients, externalRegistry: external);
 
         var result = await service.Register(Request());
 
@@ -100,6 +120,7 @@ public class DiagnosisServiceTests
         Assert.Same(existing, result.Value);
         Assert.Empty(repository.Added);
         Assert.Null(patients.LastPesel);
+        Assert.Empty(external.Registered);
     }
 
     [Fact]
@@ -180,6 +201,228 @@ public class DiagnosisServiceTests
         Assert.True(result.IsFailure);
         Assert.IsType<Error.NotFoundOnLookup>(Assert.Single(result.Errors));
         Assert.Empty(repository.Added);
+    }
+
+    [Theory]
+    [InlineData("Unknown")]
+    [InlineData("")]
+    [InlineData("99")]
+    public async Task Register_InvalidClinicalStatus_ReturnsValidationError(string clinicalStatus)
+    {
+        var repository = new FakeDiagnosisRepository();
+        var patients = new FakePatientService(byPesel: Result<Patient>.Success(new Patient(PatientId, ValidPesel)));
+        var external = new FakeExternalRegistryClient();
+        var service = CreateService(repository, patients, externalRegistry: external);
+
+        var result = await service.Register(Request() with { ClinicalStatus = clinicalStatus });
+
+        Assert.True(result.IsFailure);
+        var error = Assert.IsType<Error.Validation>(Assert.Single(result.Errors));
+        Assert.Equal("ValidationError", error.Code);
+        Assert.Equal("status not found, all statuses: Active, Healed, Return", error.Message);
+        Assert.Empty(repository.Added);
+        Assert.Empty(external.Registered);
+    }
+
+    [Theory]
+    [InlineData("Unknown")]
+    [InlineData("")]
+    [InlineData("99")]
+    public async Task Register_InvalidConfirmationStatus_ReturnsValidationError(string confirmationStatus)
+    {
+        var repository = new FakeDiagnosisRepository();
+        var patients = new FakePatientService(byPesel: Result<Patient>.Success(new Patient(PatientId, ValidPesel)));
+        var external = new FakeExternalRegistryClient();
+        var service = CreateService(repository, patients, externalRegistry: external);
+
+        var result = await service.Register(
+            Request() with { ConfirmationStatus = confirmationStatus });
+
+        Assert.True(result.IsFailure);
+        var error = Assert.IsType<Error.Validation>(Assert.Single(result.Errors));
+        Assert.Equal("ValidationError", error.Code);
+        Assert.Equal(
+            "confirmation status not found, all statuses: Probable, Confirmed",
+            error.Message);
+        Assert.Empty(repository.Added);
+        Assert.Empty(external.Registered);
+    }
+
+    [Theory]
+    [InlineData("Active", ClinicalStatus.Active)]
+    [InlineData("active", ClinicalStatus.Active)]
+    [InlineData("Healed", ClinicalStatus.Healed)]
+    [InlineData("Return", ClinicalStatus.Return)]
+    public async Task Register_ValidClinicalStatus_MapsStatus(
+        string clinicalStatus,
+        ClinicalStatus expected)
+    {
+        var repository = new FakeDiagnosisRepository();
+        var patients = new FakePatientService(byPesel: Result<Patient>.Success(new Patient(PatientId, ValidPesel)));
+        var service = CreateService(repository, patients);
+
+        var result = await service.Register(
+            Request() with { ClinicalStatus = clinicalStatus });
+
+        Assert.True(result.IsSuccess);
+        var saved = Assert.Single(repository.Added);
+        Assert.Equal(expected, saved.ClinicalStatus);
+    }
+
+    [Theory]
+    [InlineData("Probable", ConfirmationStatus.Probable)]
+    [InlineData("probable", ConfirmationStatus.Probable)]
+    [InlineData("Confirmed", ConfirmationStatus.Confirmed)]
+    public async Task Register_ValidConfirmationStatus_MapsStatus(
+        string confirmationStatus,
+        ConfirmationStatus expected)
+    {
+        var repository = new FakeDiagnosisRepository();
+        var patients = new FakePatientService(byPesel: Result<Patient>.Success(new Patient(PatientId, ValidPesel)));
+        var service = CreateService(repository, patients);
+
+        var result = await service.Register(
+            Request() with { ConfirmationStatus = confirmationStatus });
+
+        Assert.True(result.IsSuccess);
+        var saved = Assert.Single(repository.Added);
+        Assert.Equal(expected, saved.ConfirmationStatus);
+    }
+
+    [Fact]
+    public async Task Register_SymptomStartAgeOnly_SavesPatientAge()
+    {
+        var repository = new FakeDiagnosisRepository();
+        var patients = new FakePatientService(byPesel: Result<Patient>.Success(new Patient(PatientId, ValidPesel)));
+        var service = CreateService(repository, patients);
+
+        var result = await service.Register(
+            Request() with { SymptomStartDate = null, SymptomStartAge = 42 });
+
+        Assert.True(result.IsSuccess);
+        var saved = Assert.Single(repository.Added);
+        var symptomStart = Assert.IsType<SymptomStart.PatientAge>(saved.SymptomStart);
+        Assert.Equal(42, symptomStart.Age);
+    }
+
+    [Fact]
+    public async Task Register_BothSymptomStartValues_ReturnsValidationError()
+    {
+        var repository = new FakeDiagnosisRepository();
+        var patients = new FakePatientService(byPesel: Result<Patient>.Success(new Patient(PatientId, ValidPesel)));
+        var external = new FakeExternalRegistryClient();
+        var service = CreateService(repository, patients, externalRegistry: external);
+
+        var result = await service.Register(Request() with { SymptomStartAge = 42 });
+
+        Assert.True(result.IsFailure);
+        var error = Assert.IsType<Error.Validation>(Assert.Single(result.Errors));
+        Assert.Equal("multiple fields for symptom start", error.Message);
+        Assert.Empty(repository.Added);
+        Assert.Empty(external.Registered);
+    }
+
+    [Fact]
+    public async Task Register_MultipleValidationErrors_ReturnsAllErrors()
+    {
+        var repository = new FakeDiagnosisRepository();
+        var patients = new FakePatientService(byPesel: Result<Patient>.Success(new Patient(PatientId, ValidPesel)));
+        var external = new FakeExternalRegistryClient();
+        var service = CreateService(repository, patients, externalRegistry: external);
+        var request = Request(icdCode: "ZZZ-UNKNOWN") with
+        {
+            ClinicalStatus = "Unknown",
+            ConfirmationStatus = "Unknown",
+            SymptomStartAge = 42
+        };
+
+        var result = await service.Register(request);
+
+        Assert.True(result.IsFailure);
+        Assert.Equal(4, result.Errors.Count);
+        Assert.Contains(result.Errors, error =>
+            error is Error.Validation { Message: "multiple fields for symptom start" });
+        Assert.Contains(result.Errors, error =>
+            error is Error.Validation { Message: "status not found, all statuses: Active, Healed, Return" });
+        Assert.Contains(result.Errors, error =>
+            error is Error.Validation { Message: "confirmation status not found, all statuses: Probable, Confirmed" });
+        Assert.Single(result.Errors.OfType<Error.NotFound>());
+        Assert.Empty(repository.Added);
+        Assert.Empty(external.Registered);
+    }
+
+    [Fact]
+    public async Task Register_MedicalRecordNumberPatientNotFound_ReturnsLookupError()
+    {
+        var repository = new FakeDiagnosisRepository();
+        var patients = new FakePatientService();
+        var service = CreateService(repository, patients);
+
+        var result = await service.Register(
+            Request(patientPesel: null, medicalRecordNumber: ValidMedicalRecordNumber));
+
+        Assert.True(result.IsFailure);
+        Assert.IsType<Error.NotFoundOnLookup>(Assert.Single(result.Errors));
+        Assert.Equal(ValidMedicalRecordNumber, patients.LastSourceRecordId);
+        Assert.Empty(repository.Added);
+    }
+
+    [Fact]
+    public async Task Register_PeselTakesPrecedenceOverMedicalRecordNumber()
+    {
+        var otherPatient = new Patient(Guid.NewGuid(), "02070803628");
+        var repository = new FakeDiagnosisRepository();
+        var patients = new FakePatientService(
+            byPesel: Result<Patient>.Success(new Patient(PatientId, ValidPesel)),
+            bySourceIdentity: Result<Patient>.Success(otherPatient));
+        var service = CreateService(repository, patients);
+
+        var result = await service.Register(
+            Request(medicalRecordNumber: ValidMedicalRecordNumber));
+
+        Assert.True(result.IsSuccess);
+        var saved = Assert.Single(repository.Added);
+        Assert.Equal(PatientId, saved.PatientId);
+        Assert.Equal(ValidPesel, patients.LastPesel);
+        Assert.Null(patients.LastSourceRecordId);
+    }
+
+    [Fact]
+    public async Task Register_ExternalRegistryFailure_ReturnsExternalError()
+    {
+        var repository = new FakeDiagnosisRepository();
+        var patients = new FakePatientService(byPesel: Result<Patient>.Success(new Patient(PatientId, ValidPesel)));
+        var external = new FakeExternalRegistryClient
+        {
+            Response = Result<Diagnosis>.Fail([new Error.External("registry unavailable")])
+        };
+        var service = CreateService(repository, patients, externalRegistry: external);
+
+        var result = await service.Register(Request());
+
+        Assert.True(result.IsFailure);
+        var error = Assert.IsType<Error.External>(Assert.Single(result.Errors));
+        Assert.Equal("registry unavailable", error.Message);
+        Assert.Single(repository.Added);
+        Assert.Single(external.Registered);
+    }
+
+    [Fact]
+    public async Task Register_ExternalRegistrySuccess_CalledWithSavedDiagnosisAndToken()
+    {
+        var repository = new FakeDiagnosisRepository();
+        var patients = new FakePatientService(byPesel: Result<Patient>.Success(new Patient(PatientId, ValidPesel)));
+        var external = new FakeExternalRegistryClient();
+        var service = CreateService(repository, patients, externalRegistry: external);
+        using var cancellation = new CancellationTokenSource();
+
+        var result = await service.Register(Request(), cancellation.Token);
+
+        Assert.True(result.IsSuccess);
+        var saved = Assert.Single(repository.Added);
+        var sent = Assert.Single(external.Registered);
+        Assert.Same(saved, sent);
+        Assert.Equal(cancellation.Token, external.LastCancellationToken);
     }
 
     [Fact]
@@ -290,6 +533,46 @@ public class DiagnosisServiceTests
     }
 
     [Fact]
+    public async Task ChangeStatus_UnsupportedTargetReturn_ReturnsValidationMessage()
+    {
+        var diagnosis = DiagnosisFor(PatientId, ClinicalStatus.Active);
+        var repository = new FakeDiagnosisRepository { ExistingDiagnosis = diagnosis };
+        var service = CreateService(repository);
+
+        var result = await service.ChangeStatus(
+            ChangeStatusRequest(
+                sourceDiagnosisRecordId: diagnosis.SourceRecordId,
+                clinicalStatus: "Return"));
+
+        Assert.True(result.IsFailure);
+        var error = Assert.IsType<Error.Validation>(Assert.Single(result.Errors));
+        Assert.Equal("ValidationError", error.Code);
+        Assert.Equal("Unsupported status transition to Return.", error.Message);
+        Assert.Empty(repository.Updated);
+    }
+
+    [Theory]
+    [InlineData("")]
+    [InlineData(" ")]
+    public async Task ChangeStatus_BlankStatus_ReturnsValidationMessage(string clinicalStatus)
+    {
+        var diagnosis = DiagnosisFor(PatientId, ClinicalStatus.Active);
+        var repository = new FakeDiagnosisRepository { ExistingDiagnosis = diagnosis };
+        var service = CreateService(repository);
+
+        var result = await service.ChangeStatus(
+            ChangeStatusRequest(
+                sourceDiagnosisRecordId: diagnosis.SourceRecordId,
+                clinicalStatus: clinicalStatus));
+
+        Assert.True(result.IsFailure);
+        var error = Assert.IsType<Error.Validation>(Assert.Single(result.Errors));
+        Assert.Equal("ValidationError", error.Code);
+        Assert.Equal("status not found, all statuses: Active, Healed, Return", error.Message);
+        Assert.Empty(repository.Updated);
+    }
+
+    [Fact]
     public async Task ChangeStatus_UnknownStatus_ReturnsValidationMessage()
     {
         var diagnosis = DiagnosisFor(PatientId, ClinicalStatus.Active);
@@ -306,6 +589,54 @@ public class DiagnosisServiceTests
         Assert.Equal("ValidationError", error.Code);
         Assert.Equal("status not found, all statuses: Active, Healed, Return", error.Message);
         Assert.Empty(repository.Updated);
+    }
+
+    [Fact]
+    public async Task GetAmountOfDiagnosisWithICDCode_ReturnsRepositoryCount()
+    {
+        var repository = new FakeDiagnosisRepository { DiagnosisCount = 4 };
+        var service = CreateService(repository);
+
+        var result = await service.GetAmountOfDiagnosisWithICDCode(CodingSystem, ValidIcdCode);
+
+        Assert.True(result.IsSuccess);
+        Assert.Equal(4, result.Value);
+        Assert.Equal(CodingSystem, repository.LastIcdSystem);
+        Assert.Equal(ValidIcdCode, repository.LastIcdCode);
+    }
+
+    [Fact]
+    public async Task GetAmountOfDiagnosisWithICDCode_NoMatches_ReturnsZero()
+    {
+        var repository = new FakeDiagnosisRepository();
+        var service = CreateService(repository);
+
+        var result = await service.GetAmountOfDiagnosisWithICDCode(CodingSystem, ValidIcdCode);
+
+        Assert.True(result.IsSuccess);
+        Assert.Equal(0, result.Value);
+    }
+
+    [Theory]
+    [InlineData("", ValidIcdCode)]
+    [InlineData(" ", ValidIcdCode)]
+    [InlineData(CodingSystem, "")]
+    [InlineData(CodingSystem, " ")]
+    public async Task GetAmountOfDiagnosisWithICDCode_MissingInput_ReturnsValidationMessage(
+        string icdSystem,
+        string icdCode)
+    {
+        var repository = new FakeDiagnosisRepository { DiagnosisCount = 4 };
+        var service = CreateService(repository);
+
+        var result = await service.GetAmountOfDiagnosisWithICDCode(icdSystem, icdCode);
+
+        Assert.True(result.IsFailure);
+        var error = Assert.IsType<Error.Validation>(Assert.Single(result.Errors));
+        Assert.Equal("ValidationError", error.Code);
+        Assert.Equal("IcdSystem and IcdCode must be provided", error.Message);
+        Assert.Null(repository.LastIcdSystem);
+        Assert.Null(repository.LastIcdCode);
     }
 
     private static DiagnosisService CreateService(
@@ -364,6 +695,9 @@ public class DiagnosisServiceTests
         public Guid? LastDiagnosisId { get; private set; }
         public string? LastSourceSystem { get; private set; }
         public string? LastSourceRecordId { get; private set; }
+        public int DiagnosisCount { get; init; }
+        public string? LastIcdSystem { get; private set; }
+        public string? LastIcdCode { get; private set; }
         public List<Diagnosis> Added { get; } = [];
         public List<Diagnosis> Updated { get; } = [];
 
@@ -398,6 +732,13 @@ public class DiagnosisServiceTests
             Updated.Add(diagnosis);
             return Task.CompletedTask;
         }
+
+        public Task<int> GetAmountOfDiagnosisWithICDCode(string icdSystem, string icdCode)
+        {
+            LastIcdSystem = icdSystem;
+            LastIcdCode = icdCode;
+            return Task.FromResult(DiagnosisCount);
+        }
     }
 
     private sealed class FakePatientService(
@@ -427,7 +768,7 @@ public class DiagnosisServiceTests
         }
     }
 
-    private sealed class FakeIcd10Catalogue : IICD10Catalogue
+    private sealed class FakeIcd10Catalogue : IICD10CatalogueService
     {
         private static readonly Dictionary<(string System, string Code), string> KnownCodes = new()
         {
@@ -445,9 +786,18 @@ public class DiagnosisServiceTests
 
     private sealed class FakeExternalRegistryClient : IExternalRegistryClient
     {
+        public Result<Diagnosis>? Response { get; init; }
+        public List<Diagnosis> Registered { get; } = [];
+        public CancellationToken LastCancellationToken { get; private set; }
+
         public Task<Result<Diagnosis>> RegisterAsync(
             Diagnosis diagnosis,
             CancellationToken cancellationToken = default)
-            => Task.FromResult(Result<Diagnosis>.Success(diagnosis));
+        {
+            Registered.Add(diagnosis);
+            LastCancellationToken = cancellationToken;
+            return Task.FromResult(
+                Response ?? Result<Diagnosis>.Success(diagnosis));
+        }
     }
 }

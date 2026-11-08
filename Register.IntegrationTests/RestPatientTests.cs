@@ -1,7 +1,5 @@
 using System.Net;
 using System.Text.Json;
-using Microsoft.Extensions.DependencyInjection;
-using Register.App.DTO;
 
 namespace Register.IntegrationTests;
 
@@ -85,6 +83,20 @@ public class RestPatientTests
         Assert.Equal(HttpStatusCode.BadRequest, response.StatusCode);
     }
 
+    [Theory]
+    [InlineData("?sourceSystem=HIS")]
+    [InlineData("?sourceRecordId=PATIENT-1")]
+    public async Task GetPatient_WithIncompleteSourceIdentity_ReturnsBadRequest(string query)
+    {
+        var (app, client) = await DiagnosisServer.CreateAsync();
+        await using var _ = app;
+        using var __ = client;
+
+        var response = await client.GetAsync($"/patients{query}");
+
+        Assert.Equal(HttpStatusCode.BadRequest, response.StatusCode);
+    }
+
     [Fact]
     public async Task GetPatient_WithPeselAndSourceIdentity_UsesPesel()
     {
@@ -92,10 +104,10 @@ public class RestPatientTests
         await using var _ = app;
         using var __ = client;
 
-        var sourcePatientId = Guid.NewGuid();
-        var patientRepository = app.Services.GetRequiredService<InMemoryPatientRepository>();
-        patientRepository.Seed(
-            new Patient(sourcePatientId, "00000000000"), "00000000000", "OTHER", "OTHER-1");
+        await DiagnosisServer.AddPatientAsync(
+            Guid.NewGuid(),
+            "00000000000",
+            ("OTHER", "OTHER-1"));
 
         var response = await client.GetAsync(
             $"/patients?pesel={DiagnosisServer.ValidPesel}" +

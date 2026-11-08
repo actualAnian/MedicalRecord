@@ -9,5 +9,6 @@ namespace Register.DataBase.Repositories
         Task<Diagnosis?> FindBySourceIdentityAsync(string sourceSystem, string sourceRecordId);
         Task<Diagnosis?> FindByIdAsync(Guid id);
         Task UpdateAsync(Diagnosis diagnosis);
+        Task<int> GetAmountOfDiagnosisWithICDCode(string icdSystem, string IcdCode);
     }
 }

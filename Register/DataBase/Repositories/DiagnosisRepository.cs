@@ -1,7 +1,7 @@
 ﻿using Dapper;
 using Microsoft.Data.SqlClient;
-using Register.App;
 using Register.App.DTO;
+using Register.App.Services;
 using Register.DataBase.DTO;
 using Register.DataBase.Mappers;
 
@@ -10,9 +10,9 @@ namespace Register.DataBase.Repositories
     public class DiagnosisRepository : IDiagnosisRepository
     {
         private readonly string _connectionString;
-        private readonly IICD10Catalogue _iCD10Catalogue;
+        private readonly IICD10CatalogueService _iCD10Catalogue;
 
-        public DiagnosisRepository(string connectionString, IICD10Catalogue iCD10Catalogue)
+        public DiagnosisRepository(string connectionString, IICD10CatalogueService iCD10Catalogue)
         {
             _connectionString = connectionString;
             _iCD10Catalogue = iCD10Catalogue;
@@ -178,6 +178,17 @@ namespace Register.DataBase.Repositories
                 diagnosis.Id,
                 diagnosis.ClinicalStatus
             });
+        }
+        public async Task<int> GetAmountOfDiagnosisWithICDCode(string icdSystem, string icdCode)
+        {
+            const string sql = """
+                SELECT COUNT(*)
+                FROM dbo.Diagnoses
+                WHERE IcdSystem = @icdSystem
+                    AND IcdCode = @icdCode;
+            """;
+            await using var connection = new SqlConnection(_connectionString);
+            return await connection.QuerySingleAsync<int>(sql, new { icdSystem, icdCode });
         }
     }
 }
